@@ -6,118 +6,169 @@ tool call need approval? Should the browser click here or there? None of that ne
 It needs a yes/no, a category, or a score — and until recently, we were paying frontier-model
 prices to get one.
 
-That's the gap Jev is built for. It's a decision model from TypeSafe AI — you give it a state and
-a bounded question, and it hands back a choice, a score, or a probability. No prose, no reasoning
-trace, nothing to parse. According to TypeSafe, that narrower job is what lets it run 20–200x
-faster and 40–400x cheaper than a general chat model on classification-shaped work, answering in
-under 500ms with output tokens priced at zero.
+That's the gap Jev is built for.
 
-I've been testing it, and reading through what other people are shipping with it. Here's what
-actually holds up.
+## What Jev actually is
 
-## The numbers, briefly
+Jev is a decision model from TypeSafe AI, a company that came out of stealth on September 15,
+2026 with a $40 million seed round. It was co-founded by Diogo Almeida, who spent about four years
+at OpenAI helping build ChatGPT — which makes the pitch land differently: this isn't an outsider
+guessing at what's missing from chat models, it's someone who helped build one deciding a big
+chunk of what they're used for shouldn't need one at all.
 
-Testing one batch of 1,000 emails through Jev took about 6 seconds and 9 cents once parallelized.
-The same classification job on a GPT-5.6-class model: roughly 5 minutes and 62 cents. Sorting
-1,000 YouTube comments by type, reply-worthiness, and sentiment ran about 5 seconds for 5 cents.
-Across one testing session, close to 20,000 requests went through for under a dollar total.
+TypeSafe calls Jev a "System One" model, after Daniel Kahneman's *Thinking, Fast and Slow*. System
+One is fast, automatic judgment — knowing 2 + 2 is 4 without working through it. System Two is
+slow and deliberate — the kind of reasoning Claude or ChatGPT do when they think through a
+response. Jev is built purely for the System One half: it doesn't write, it decides.
 
-Other builders report similar shapes at larger scale: 724 live ads classified across six
-dimensions in ~40 seconds for about 9 cents. 700 sales leads scored in ~40 seconds for a similar
-price. A social-post scoring tool running 61 separate questions per draft at roughly $0.0004 and
-one second per post. A fraud-detection pipeline that ran Jev first, escalated only the uncertain
-14% of cases to a larger model, and landed at 96% final accuracy for about 7 cents total.
+Every call has two parts: a **state** (a ticket, an email, a document, a log line — structured or
+plain text) and one or more **questions**, each of a fixed type:
 
-Worth saying plainly: most of these are builder-reported, not independently benchmarked. Treat
-them as directional, not as a spec sheet.
+- **Choice** — pick one option from a list you define, with a probability for every option.
+- **Score** — rate the state on an ordered scale you define.
+- **Noul** — a yes/no question, returned as a probability of "yes."
+
+Send Jev a support ticket that reads "my card was charged twice," ask it a Choice question over
+`billing / technical / sales`, and it comes back with something like
+`{"billing": 0.08, "technical": 0.85, "sales": 0.07}` plus an overall confidence — no explanation,
+no prose, just a typed answer your code can branch on directly. TypeSafe's docs recommend sending
+every question you might need in one request, including speculative ones, since questions in a
+single call are evaluated in parallel and mostly don't add latency.
+
+## The pattern: confidence-gated action
+
+Nearly every real use case reduces to one design: **act when Jev is sure, escalate when it isn't.**
+Armin Ronacher, CTO of Earendil, put it to TechCrunch about as plainly as it gets — the model
+"delegates the hallucination problem a little bit to the user." A 50% answer is a coin toss and
+should be treated like one. A 95% answer is worth acting on.
+
+The shape shows up everywhere: high confidence → code acts (route, approve, block, rank) directly.
+Middle confidence → send it to an LLM for a slower, deeper look. Low confidence → put it in front
+of a human. The thresholds aren't fixed — TypeSafe's own voice-banking example sets a 0.6 floor
+for checking a balance but wants north of 0.85 before approving a transfer. The model doesn't set
+the bar. You do, per action, based on what a wrong answer costs.
+
+## The numbers — and which ones to actually trust
+
+Three tiers of evidence are floating around, and they're not equally solid.
+
+**Vendor-reported:** TypeSafe's own benchmarks claim Jev is 193.6x faster and 444.6x cheaper than
+the frontier models it was tested against, at $0.042 per million input tokens with output priced
+at zero, responding in roughly 70–500ms. Worth knowing before you repeat these: TypeSafe built the
+benchmark workflows itself and scored Jev against the *average* of two external models, not a
+ground-truth answer key — and the company itself says real-world gains likely sit below that high
+end.
+
+**Independently tested:** One outside team ran Jev through OpenRouter and measured a median latency
+of 0.33 seconds across 791 calls (slowest: 1.42s) — closer to the vendor's range than you might
+expect from a third party. The same team ran an 8-way routing task and found that keeping only
+answers at 90%+ confidence lifted accuracy from 83.8% to 95.5%, while still answering 70% of the
+items outright. That's the kind of number worth actually citing — it's someone else's data, on
+their own task, not TypeSafe's.
+
+**Builder-reported, take with a grain of salt:** the viral tweets — 724 ads classified across 37
+brands in 40 seconds for 9 cents, 700 leads scored in 40 seconds for the same price, a 586-page
+site's internal-link map rebuilt in 45 seconds for 21 cents, a fraud-detection pipeline hitting 96%
+accuracy after escalating just 31 of 100 emails to a larger model. None of these are audited. All
+of them are directionally consistent with each other, which counts for something, but they're
+still one builder's numbers on their own data.
 
 ## What it can't do
 
 Jev has no reasoning step, no summarization, and a 64,000-token context window — small next to the
 roughly 1-million-token windows GPT and Claude offer now. It's text-only: no images, no browsing,
-no code generation, no open-ended writing. Ask it to draft a reply or explain a paper and you're
-using the wrong tool. That's not a flaw, it's the design — the moment a task needs generation
-instead of a bounded pick, hand it to a real model.
+no code generation, no open-ended writing, and critically, **no explanation** — it returns a
+probability, not a reason why. Paul Chada of Doozer AI made the sharpest version of this point to
+InfoWorld: a confidence score tells you how sure the model was, not why, and that gap matters the
+moment you have to defend a decision to a regulator or a customer.
 
-## The pattern that keeps showing up
+## Where it's actually landing
 
-Read enough Jev projects and the architecture is always some version of the same shape:
+Strip away the demos and the same architecture keeps repeating:
 
 ```
 big model → Jev → code → Jev → tool → Jev → big model
 ```
 
-The large model plans, writes, and reasons. Jev sits in the gaps, making the small repeated calls
-that don't need any of that. A few concrete versions of it:
+The large model plans, writes, and reasons. Jev handles the small, repeated, bounded calls in
+between. Concrete versions people have actually shipped:
 
-- **Model routing.** Jev judges how hard a request looks, then sends it to a cheap, medium, or
-  frontier model accordingly — instead of defaulting every request to the most expensive option.
-- **Guardrails.** Jev screens input before it reaches the main LLM (blocking injection attempts,
-  toxic input, off-policy requests) and can screen the output before it reaches the user.
-- **Tool-call gating.** An agent's tool call gets classified allow / ask / deny before it executes
-  — a cheap second opinion sitting between intent and action.
-- **Confidence gating.** Above a threshold, Jev's answer is trusted and the system acts. In a
-  middle band, a human confirms. Below that, it escalates to a person. The classifier sets the
-  thresholds, not the LLM.
-- **Reranking and retrieval triage.** Given a query and a pile of documents, Jev scores relevance
-  before a larger model reads anything — so the expensive read only happens on what's likely to
-  matter.
-- **Bulk labeling.** Map a classification over millions of rows — the kind of job that was never
-  going to be cost-effective one LLM call at a time.
-- **Real-time control loops.** State in, action out, every few hundred milliseconds — games, bots,
-  trading loops, drones. One demo ran a browser agent through a full flight search in about 7
-  seconds; another ran continuous decisions in a game loop at roughly $7/hour for ~10
-  decisions/second.
-
-## Where it's actually landing
-
-Beyond the demos, a few use cases show up again and again in production-shaped systems:
-
-1. **Inbox and ticket triage.** Classify urgency, owning team, and customer sentiment per message,
-   then only hand the ones that need a written reply to a full model.
-2. **Lead scoring.** Score fit, confidence, and mismatch across hundreds of leads before spending
-   generation on outreach copy — write personalized messages only for the leads worth it.
-3. **Content and research triage.** Score relevance across a firehose of posts, papers, or news
-   before a larger model reads anything — one research-classification project ran 1,018 papers
-   for about 8 cents.
-4. **Contract and code review as a first pass.** Score risk or flag concerning clauses/diffs
-   before routing the interesting subset to a human or a larger model — narrowing where expensive
-   review time actually goes, not replacing the review.
-5. **Skill/tool routing inside an agent.** As an agent accumulates more skills and workflows, Jev
-   picks which one applies before the full instructions get loaded, instead of the agent inspecting
-   everything up front.
-6. **Context management.** Between turns, score which parts of a long conversation or tool-output
-   history are safe to drop — without rewriting anything that survives, so paths, commands, and
-   error messages don't get quietly paraphrased away.
+- **Inbox and ticket triage.** Classify urgency, owning team, and sentiment per message, then only
+  hand what needs a written reply to a full model — one builder went from a full inbox to "nearly
+  inbox zero" this way, using Jev only to archive and label, never to write.
+- **A self-organizing second brain.** A private Slack channel captures every stray idea; Jev
+  classifies each one by type, area, and priority; a full model files it into the right Notion
+  page. No sorting later, because the sorting already happened.
+- **Model and skill routing.** Jev scores how hard a prompt looks and sends it to a cheap, medium,
+  or frontier model accordingly — or, inside an agent with many skills, picks which one applies
+  before the full instructions get loaded.
+- **Guardrails and tool-call gating.** Screen input before it reaches the main LLM (jailbreaks,
+  injection attempts, off-policy requests), or gate a tool call as allow / ask / deny before it
+  executes. Pranit Sharma, an engineer at Vercel, told TechCrunch his team replaced an
+  OpenAI-based safety reviewer with Jev and got results 5–18x faster with better accuracy —
+  secondhand, one team, one workload, but a real production swap.
+- **Reranking and retrieval triage.** Score relevance across a pile of documents before a larger
+  model reads anything. TypeSafe's own legal-search cookbook reported top-1 accuracy rising from
+  5% to 18% (and top-10 from 38% to 62%) after reranking a BM25 shortlist — a small, single-domain
+  test, worth replicating before trusting.
+- **Semantic linting in CI.** Define a check that needs meaning, not just a regex — "does this
+  error message tell the user what to do next?" — and fail the build only when confidence is high.
+- **Contract and code review as a first pass.** Score risk per clause or per diff, and route only
+  the flagged, uncertain subset to a human or a larger model, instead of reviewing everything at
+  the same depth.
+- **Bulk classification.** Map a yes/no or category question over hundreds of thousands of rows —
+  the kind of job that was never going to be worth an LLM call per row.
+- **Inside the product, not just behind it.** Browser extensions like Unclutter use Jev to
+  recognize and hide ads, cookie banners, and low-quality content on the fly; recommendation tools
+  use it to score and rank options against a user's answers; live-monitoring apps use it to decide
+  which price move or news item actually deserves an alert.
 
 ## The honest caveats
 
-A cheap decision isn't automatically a *good* one. Jev can make a trading signal fast; it can't
-make a weak signal predictive. It can score a lead in milliseconds; it can't tell you your ICP is
-wrong. The model is efficient at applying judgment — it doesn't manufacture judgment that wasn't
-there in the underlying data or criteria.
+A cheap decision isn't automatically a good one. David Linthicum's comparison, via InfoWorld, is
+the right one: using a general LLM for every small decision is like using a full enterprise
+service bus to answer a yes/no routing question — but the fix is matching the tool to the
+decision, not assuming the cheap tool is always right. A few things worth sitting with before you
+build on it:
 
-It's also worth keeping the trust boundary straight: a classification is evidence that an action
-looks appropriate, not permission to take it. "Allow" should still be a separate, deliberate step
-from "decided," especially anywhere the action is irreversible — publishing, spending money,
-messaging someone, changing durable state.
+- **It's hosted, not self-hostable.** No public model weights exist yet, so anything privacy- or
+  local-first needs to be deliberate about what evidence actually crosses the network — send the
+  minimum needed to make the call, not the whole document.
+- **It's a young, single-vendor dependency.** Advait Patel, an SRE at Broadcom, points out Jev
+  runs in a single region from an early-stage vendor — real security, data-residency, and
+  service-level questions for anything production-critical.
+- **Confidence isn't authority.** A high-confidence classification is evidence an action looks
+  appropriate, not permission to take it automatically — especially anywhere the action is
+  irreversible: publishing, spending money, messaging someone, changing durable state.
+- **Access is still limited.** As of mid-to-late September 2026, TypeSafe runs a waitlist for
+  direct API access; it's also available through OpenRouter, Vercel's AI Gateway, and Cloudflare
+  Workers AI in the meantime.
+- **Typed doesn't mean true.** A Choice or Score answer can't come back malformed — but it can
+  absolutely come back wrong. Structure is not the same guarantee as correctness.
 
-And it's currently hosted, not something you self-host — so if you're running anything with a
-local-first or privacy-sensitive setup, be deliberate about what evidence actually crosses the
-network. Send the minimum needed to make the call, not the whole document.
+## If you want to actually try it
+
+The sanest way in, borrowed from people who've piloted it inside real workflows rather than demos:
+
+1. Pick one decision you already make thousands of times a month — ticket routing is the classic
+   starting point.
+2. Write the question, the allowed answers, and the escalation path *before* touching the API.
+   Specifying thresholds and escalation rules in advance is most of the actual work.
+3. Run it in shadow mode next to your current process first. Check that a stated 90% confidence
+   actually means about 90% right on *your* data, not TypeSafe's.
+4. Only let it act automatically above a threshold you've measured yourself.
 
 ## Should you use it
 
 If you have a queue of anything — emails, tickets, leads, comments, papers, diffs — and you're
 currently paying a frontier model to make a small, repeated, structurally bounded judgment about
-each one, that's the exact shape of problem this is for. If your bottleneck is instead generation
-— writing, explaining, reasoning through something novel — this doesn't help, and reaching for it
+each one, that's the exact shape of problem this is for. If your bottleneck is generation —
+writing, explaining, reasoning through something novel — this doesn't help, and reaching for it
 anyway just adds a hop.
 
 The mental model that's stuck with me: don't ask whether Jev can replace your chat model. Ask
 whether your chat model was ever the right tool for the specific decision you're asking it to
-make. A lot of the time, it wasn't — it was just the only thing available that returned an
-answer.
+make. A lot of the time, it wasn't — it was just the only thing available that returned an answer.
 
 ---
 

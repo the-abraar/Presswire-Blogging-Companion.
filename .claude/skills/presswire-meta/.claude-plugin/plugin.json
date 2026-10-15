@@ -1,0 +1,1 @@
+{ "name": "presswire-meta", "version": "0.1.0", "description": "Keeps Presswire's published/ posts and meta.json files consistent, and adds a /posts pane of posts not yet cross-posted.", "types": "./types/index.d.ts" }

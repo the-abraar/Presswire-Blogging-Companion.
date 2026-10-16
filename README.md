@@ -30,12 +30,19 @@ working_rn/{N}_{topic}/agent_written_blog.md  Presswire's draft
 published/{N}_{topic}.md                    the final, published version
 published/{N}_{topic}.meta.json             platforms + links a post went out to
 analytics/{YYYY-MM}.md                      monthly performance report
+working_rn/{N}_{topic}/*_lessons.md         notes kept beside a draft (e.g. `1_jev/jev_lessons.md`)
+saved_blogs/                                third-party articles saved as PDFs for reference (gitignored)
 ```
+
+Post numbers are global and sequential. The `presswire-meta` hook (`.claude/skills/presswire-meta/`)
+enforces this: a write to `published/{N}_{topic}.md` is refused unless `working_rn/{N}_{topic}/` exists
+with the same slug, and every `published/*.meta.json` is checked for the required fields, a `number` that matches its
+filename, and known platforms (devto, hashnode, substack, medium, byte2go, linkedin).
 
 Full mechanics, distribution logic, and current publishing/analytics limits are documented in
 [`CLAUDE.md`](./CLAUDE.md).
 
 ## Status
 
-Early — pipeline is live, first draft (`working_rn/1_jev`) in progress. Auto-publishing to
+Early — pipeline is live, two drafts in progress (`working_rn/1_jev`, `working_rn/3_claude-mods`), nothing in `published/` yet. Auto-publishing to
 platforms isn't wired up yet; Presswire currently hands over ready-to-paste copy per platform.

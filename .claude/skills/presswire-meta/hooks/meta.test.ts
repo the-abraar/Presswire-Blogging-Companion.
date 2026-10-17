@@ -13,6 +13,10 @@ test('number mismatch, bad JSON, unknown platform, bad url', () => {
   const bad = JSON.parse(ok)
   bad.platforms = { twitter: { url: '' } }
   expect(checkMeta(JSON.stringify(bad), 3) !== null).toBe(true)
+  bad.platforms = {}
+  bad.canonical_url = 'dev.to/x'
+  expect(checkMeta(JSON.stringify(bad), 3) !== null).toBe(true)
+  delete bad.canonical_url
   bad.platforms = { devto: { url: 'dev.to/x' } }
   expect(checkMeta(JSON.stringify(bad), 3) !== null).toBe(true)
 })

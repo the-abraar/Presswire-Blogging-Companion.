@@ -54,10 +54,13 @@ Note: the existing folder is `published/` (lowercase) — that's the one in use;
 ```json
 {
   "title": "...",
+  "description": "one or two sentences; reused as subtitle / SEO / OG text",
   "number": 1,
   "topic_slug": "jev",
   "tags": ["ai", "dev-tools"],
   "published_date": "2026-09-27",
+  "modified_date": "",
+  "canonical_url": "",
   "platforms": {
     "devto": { "url": "", "posted_date": "" },
     "hashnode": { "url": "", "posted_date": "" },
@@ -68,7 +71,10 @@ Note: the existing folder is `published/` (lowercase) — that's the one in use;
   }
 }
 ```
-Only fill in the platforms actually used for that post.
+Only fill in the platforms actually used for that post. `canonical_url` is the one "home" URL when a
+post is cross-posted; set it to the first platform's URL and pass it as the canonical/original-URL
+field on every other platform's copy. `modified_date` is set only when a published post is edited
+afterwards. Files prefixed with `_` (e.g. `published/_notes.md`) are scratch and never treated as posts.
 
 ## Distribution logic (judgment call, not a fixed table)
 

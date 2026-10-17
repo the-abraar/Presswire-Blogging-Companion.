@@ -10,10 +10,13 @@ export const checkMeta = (text: string, number: number): string | null => {
   } catch {
     return 'not valid JSON'
   }
-  for (const k of ['title', 'number', 'topic_slug', 'tags', 'published_date', 'platforms'])
+  for (const k of ['title', 'description', 'number', 'topic_slug', 'tags', 'published_date', 'platforms'])
     if (!(k in m)) return `missing "${k}"`
   if (m.number !== number) return `"number" is ${m.number} but the filename says ${number}`
   if (!Array.isArray(m.tags)) return '"tags" must be an array'
+  for (const k of ['canonical_url', 'modified_date'])
+    if (m[k] && typeof m[k] !== 'string') return `"${k}" must be a string`
+  if (m.canonical_url && !/^https?:\/\//.test(m.canonical_url)) return '"canonical_url" must start with http(s)://'
   for (const [p, v] of Object.entries<any>(m.platforms ?? {})) {
     if (!PLATFORMS.includes(p)) return `unknown platform "${p}" (${PLATFORMS.join(', ')})`
     if (v?.url && !/^https?:\/\//.test(v.url)) return `${p}.url must start with http(s)://`
@@ -22,4 +25,4 @@ export const checkMeta = (text: string, number: number): string | null => {
 }
 
 export const skeleton = (n: number, slug: string, title: string, date: string) =>
-  JSON.stringify({ title, number: n, topic_slug: slug, tags: [], published_date: date, platforms: {} }, null, 2) + '\n'
+  JSON.stringify({ title, description: '', number: n, topic_slug: slug, tags: [], published_date: date, platforms: {} }, null, 2) + '\n'
